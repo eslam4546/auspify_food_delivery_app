@@ -53,7 +53,7 @@ class AuthCubit extends Cubit<AuthState> {
       await _authSubscription?.cancel();
       _authSubscription = _watchAuthStateUseCase().listen(
         (user) {
-          if (isClosed) return;
+          if (isClosed || state.isSubmitting) return;
           if (user != null) {
             emit(
               state.copyWith(
@@ -63,7 +63,7 @@ class AuthCubit extends Cubit<AuthState> {
                 clearError: true,
               ),
             );
-          } else if (!state.isSubmitting) {
+          } else {
             emit(
               state.copyWith(
                 status: AuthStatus.unauthenticated,

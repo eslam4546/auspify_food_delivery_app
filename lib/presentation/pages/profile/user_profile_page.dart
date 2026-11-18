@@ -11,6 +11,7 @@ import 'package:food_delivery_application/presentation/cubits/order/order_tracki
 import 'package:food_delivery_application/presentation/cubits/restaurant/restaurant_cubit.dart';
 import 'package:food_delivery_application/presentation/cubits/restaurant/restaurant_state.dart';
 import 'package:food_delivery_application/presentation/cubits/theme/theme_cubit.dart';
+import 'package:food_delivery_application/presentation/pages/auth/login_page.dart';
 import 'package:food_delivery_application/presentation/widgets/resilient_network_image.dart';
 import 'package:intl/intl.dart';
 
@@ -69,41 +70,52 @@ class UserProfilePage extends StatelessWidget {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
-    return SafeArea(
-      bottom: false,
-      child: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 14, 16, 108),
-        children: [
-          Text('Profile & Orders', style: theme.textTheme.headlineMedium),
-          const SizedBox(height: 14),
-          _buildProfileHeroCard(context, theme, isDark),
-          const SizedBox(height: 22),
-          _buildFavoriteRestaurantsSection(context, theme, isDark),
-          const SizedBox(height: 22),
-          _buildOrdersHistorySection(context, theme, isDark),
-          const SizedBox(height: 22),
-          _buildPreferencesCard(context, theme, isDark),
-          const SizedBox(height: 20),
-          SizedBox(
-            height: 50,
-            child: ElevatedButton.icon(
-              onPressed: () => context.read<AuthCubit>().signOut(),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.error.withValues(alpha: 0.12),
-                foregroundColor: AppColors.error,
-                elevation: 0,
+    return BlocListener<AuthCubit, AuthState>(
+      listenWhen: (previous, current) =>
+          previous.status != current.status &&
+          current.status == AuthStatus.unauthenticated,
+      listener: (context, state) {
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute<void>(builder: (_) => const LoginPage()),
+          (route) => false,
+        );
+      },
+      child: SafeArea(
+        bottom: false,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 108),
+          children: [
+            Text('Profile & Orders', style: theme.textTheme.headlineMedium),
+            const SizedBox(height: 14),
+            _buildProfileHeroCard(context, theme, isDark),
+            const SizedBox(height: 22),
+            _buildFavoriteRestaurantsSection(context, theme, isDark),
+            const SizedBox(height: 22),
+            _buildOrdersHistorySection(context, theme, isDark),
+            const SizedBox(height: 22),
+            _buildPreferencesCard(context, theme, isDark),
+            const SizedBox(height: 20),
+            SizedBox(
+              height: 50,
+              child: ElevatedButton.icon(
+                onPressed: () => context.read<AuthCubit>().signOut(),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.error.withValues(alpha: 0.12),
+                  foregroundColor: AppColors.error,
+                  elevation: 0,
+                ),
+                icon: const Icon(Icons.logout_rounded, size: 20),
+                label: const Text('Sign Out of Cravee'),
               ),
-              icon: const Icon(Icons.logout_rounded, size: 20),
-              label: const Text('Sign Out of Cravee'),
             ),
-          ),
-          const SizedBox(height: 14),
-          Text(
-            'Cravee • Warm Courier • Clean Architecture & Cubit',
-            textAlign: TextAlign.center,
-            style: theme.textTheme.bodySmall,
-          ),
-        ],
+            const SizedBox(height: 14),
+            Text(
+              'Cravee • Warm Courier • Clean Architecture & Cubit',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodySmall,
+            ),
+          ],
+        ),
       ),
     );
   }

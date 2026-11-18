@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:food_delivery_application/core/theme/app_colors.dart';
+import 'package:food_delivery_application/main.dart';
 import 'package:food_delivery_application/presentation/cubits/auth/auth_cubit.dart';
 import 'package:food_delivery_application/presentation/cubits/auth/auth_state.dart';
 import 'package:food_delivery_application/presentation/cubits/theme/theme_cubit.dart';
@@ -55,9 +56,19 @@ class _LoginPageState extends State<LoginPage> {
 
     return BlocConsumer<AuthCubit, AuthState>(
       listenWhen: (previous, current) =>
-          current.errorMessage != null &&
-          current.errorMessage != previous.errorMessage,
+          (current.isAuthenticated && !previous.isAuthenticated) ||
+          (current.errorMessage != null &&
+              current.errorMessage != previous.errorMessage),
       listener: (context, state) {
+        if (state.isAuthenticated) {
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute<void>(
+              builder: (_) => const AuthenticatedShellPage(),
+            ),
+            (route) => false,
+          );
+          return;
+        }
         final message = state.errorMessage;
         if (message != null && message.isNotEmpty) {
           ScaffoldMessenger.of(context)

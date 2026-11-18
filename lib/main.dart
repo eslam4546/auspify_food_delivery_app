@@ -72,31 +72,65 @@ class FoodDeliveryApp extends StatelessWidget {
   }
 }
 
-class _AuthRoutingGate extends StatefulWidget {
+/// Initial app launch gate that routes to [AuthenticatedShellPage] or [LoginPage]
+/// once [AuthCubit.checkAuthStatus] resolves.
+class _AuthRoutingGate extends StatelessWidget {
   const _AuthRoutingGate();
 
   @override
-  State<_AuthRoutingGate> createState() => _AuthRoutingGateState();
+  Widget build(BuildContext context) {
+    return BlocBuilder<AuthCubit, AuthState>(
+      builder: (context, state) {
+        if (state.status == AuthStatus.initial ||
+            state.status == AuthStatus.loading) {
+          return const _BrandSplashLoader();
+        }
+
+        if (state.isAuthenticated && state.user != null) {
+          return const AuthenticatedShellPage();
+        }
+
+        return const LoginPage();
+      },
+    );
+  }
 }
 
-class _AuthRoutingGateState extends State<_AuthRoutingGate> {
+/// Authenticated root host wrapping [MainShellPage], hydrating user-scoped
+/// Cubits (restaurants, cart, orders), and wiring navigation across all 8 screens.
+class AuthenticatedShellPage extends StatefulWidget {
+  const AuthenticatedShellPage({super.key});
+
+  @override
+  State<AuthenticatedShellPage> createState() => _AuthenticatedShellPageState();
+}
+
+class _AuthenticatedShellPageState extends State<AuthenticatedShellPage> {
   String? _hydratedUid;
 
-  void _hydrateUserSession(BuildContext context, String uid) {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final user = context.read<AuthCubit>().state.user;
+      if (user != null) {
+        _hydrateUserSession(user.uid);
+      }
+    });
+  }
+
+  void _hydrateUserSession(String uid) {
     if (_hydratedUid == uid) return;
     _hydratedUid = uid;
 
-    final restaurantCubit = context.read<RestaurantCubit>();
-    final cartCubit = context.read<FoodCartCubit>();
-    final orderCubit = context.read<OrderTrackingCubit>();
-
-    restaurantCubit
+    context.read<RestaurantCubit>()
       ..bindUser(uid)
       ..loadRestaurants(uid: uid);
-    cartCubit
+    context.read<FoodCartCubit>()
       ..bindUser(uid)
       ..loadCart(uid: uid);
-    orderCubit
+    context.read<OrderTrackingCubit>()
       ..bindUser(uid)
       ..loadOrdersAndAddress(uid: uid);
   }
@@ -161,62 +195,41 @@ class _AuthRoutingGateState extends State<_AuthRoutingGate> {
 
   @override
   Widget build(BuildContext context) {
-    return BlocConsumer<AuthCubit, AuthState>(
+    return BlocListener<AuthCubit, AuthState>(
+      listenWhen: (previous, current) =>
+          current.isAuthenticated && current.user?.uid != previous.user?.uid,
       listener: (context, state) {
-        if (state.isAuthenticated && state.user != null) {
-          _hydrateUserSession(context, state.user!.uid);
-        } else if (state.status == AuthStatus.unauthenticated) {
-          _hydratedUid = null;
+        if (state.user != null) {
+          _hydrateUserSession(state.user!.uid);
         }
       },
-      builder: (context, state) {
-        if (state.status == AuthStatus.initial ||
-            state.status == AuthStatus.loading) {
-          return const _BrandSplashLoader();
-        }
-
-        if (state.isAuthenticated && state.user != null) {
-          if (_hydratedUid != state.user!.uid) {
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (mounted) {
-                _hydrateUserSession(context, state.user!.uid);
-              }
-            });
-          }
-
-          return MainShellPage(
-            buildTabs: (switchTab) => [
-              HomeDiscoveryPage(
-                onOpenRestaurant: (restaurant) =>
-                    _openRestaurantDetails(context, restaurant),
-                onOpenOrderTracking: (order) =>
-                    _openOrderTracking(context, order),
-                onOpenSearchTab: () => switchTab(1),
-                onOpenProfileTab: () => switchTab(3),
-              ),
-              RestaurantSearchPage(
-                onOpenRestaurant: (restaurant) =>
-                    _openRestaurantDetails(context, restaurant),
-                onOpenDishCustomization: (restaurant, dish) =>
-                    _openDishCustomization(context, restaurant, dish),
-              ),
-              FoodCartCheckoutPage(
-                onBrowseRestaurants: () => switchTab(0),
-                onOrderPlaced: (order) => _openOrderTracking(context, order),
-              ),
-              UserProfilePage(
-                onOpenRestaurant: (restaurant) =>
-                    _openRestaurantDetails(context, restaurant),
-                onOpenOrderTracking: (order) =>
-                    _openOrderTracking(context, order),
-                onReorderToCart: () => switchTab(2),
-              ),
-            ],
-          );
-        }
-
-        return const LoginPage();
-      },
+      child: MainShellPage(
+        buildTabs: (switchTab) => [
+          HomeDiscoveryPage(
+            onOpenRestaurant: (restaurant) =>
+                _openRestaurantDetails(context, restaurant),
+            onOpenOrderTracking: (order) => _openOrderTracking(context, order),
+            onOpenSearchTab: () => switchTab(1),
+            onOpenProfileTab: () => switchTab(3),
+          ),
+          RestaurantSearchPage(
+            onOpenRestaurant: (restaurant) =>
+                _openRestaurantDetails(context, restaurant),
+            onOpenDishCustomization: (restaurant, dish) =>
+                _openDishCustomization(context, restaurant, dish),
+          ),
+          FoodCartCheckoutPage(
+            onBrowseRestaurants: () => switchTab(0),
+            onOrderPlaced: (order) => _openOrderTracking(context, order),
+          ),
+          UserProfilePage(
+            onOpenRestaurant: (restaurant) =>
+                _openRestaurantDetails(context, restaurant),
+            onOpenOrderTracking: (order) => _openOrderTracking(context, order),
+            onReorderToCart: () => switchTab(2),
+          ),
+        ],
+      ),
     );
   }
 }
