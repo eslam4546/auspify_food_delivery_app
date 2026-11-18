@@ -15,6 +15,28 @@ Designed with the **Warm Courier** Design System (`Plus Jakarta Sans`, `#FF4B26`
 
 ---
 
+## App Screenshots
+
+### Discovery, Search & Restaurant Storefront
+
+| Authentication | Home & Restaurant Discovery | Search & Cuisines Filter | Restaurant Storefront & Menu |
+| :---: | :---: | :---: | :---: |
+| <img src="docs/screenshots/01_authentication.png" alt="Authentication Screen" width="210"/> | <img src="docs/screenshots/02_home_discovery.png" alt="Home Discovery Screen" width="210"/> | <img src="docs/screenshots/03_search_filters.png" alt="Search and Filter Screen" width="210"/> | <img src="docs/screenshots/04_restaurant_storefront_menu.png" alt="Restaurant Storefront and Menu" width="210"/> |
+
+### Meal Customization, Hybrid Cart & Simulated Checkout
+
+| Meal Details & Size | Add-ons & Kitchen Notes | Single-Restaurant Cart & Promos | Payment & Bill Summary |
+| :---: | :---: | :---: | :---: |
+| <img src="docs/screenshots/05_meal_customization_top.png" alt="Meal Customization Size Selector" width="210"/> | <img src="docs/screenshots/06_meal_customization_addons.png" alt="Meal Customization Add-ons and Notes" width="210"/> | <img src="docs/screenshots/07_cart_promo.png" alt="Cart and Promo Codes" width="210"/> | <img src="docs/screenshots/08_checkout_payment_summary.png" alt="Checkout Payment and Bill Summary" width="210"/> |
+
+### Live Order Tracking, Profile Hub & Delivery Location
+
+| Interactive Live Order Tracking | Profile, Favorites & Orders Hub | Quick Delivery Location Sheet |
+| :---: | :---: | :---: |
+| <img src="docs/screenshots/09_live_order_tracking.png" alt="Interactive Live Order Tracking" width="220"/> | <img src="docs/screenshots/10_profile_orders_hub.png" alt="User Profile and Orders Hub" width="220"/> | <img src="docs/screenshots/11_delivery_address_sheet.png" alt="Delivery Address Bottom Sheet" width="220"/> |
+
+---
+
 ## Key Features
 
 ### 1. Authentication & Cloud Profile Sync (`AuthCubit`)
