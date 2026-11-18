@@ -1,0 +1,379 @@
+rules_version = '2';
+
+// ===============================================================
+// Assumed Data Model — Warm Courier (Food Delivery Application)
+// ===============================================================
+//
+// All user data is strictly owner-scoped (request.auth.uid == uid).
+// Default-deny is enforced at the root for all unmatched paths.
+//
+// Collection: users
+// Document ID: {uid} (must match Firebase Auth UID)
+// Access: Owner read/create/update only; delete denied.
+// Fields:
+//   - uid: string (required, immutable, == {uid}, 1..128 chars)
+//   - name: string (required, 1..120 chars)
+//   - email: string (required, valid email, 1..254 chars)
+//   - photoUrl: string | null (optional, <= 2048 chars, empty or http(s) URL)
+//   - defaultAddress: map | null (optional, keys: fullName, phone, street, city)
+//   - favoriteRestaurantIds: list<string> (optional, size <= 200)
+//   - createdAt: timestamp (optional, immutable once set)
+//   - updatedAt: timestamp (optional)
+//
+// Collection: users/{uid}/cart
+// Document ID: {cartItemId}
+// Access: Owner read/create/update/delete only.
+// Fields:
+//   - cartItemId: string (required, immutable, == {cartItemId}, 1..128 chars)
+//   - restaurantId: string (required, immutable, 1..128 chars)
+//   - restaurantName: string (required, 1..150 chars)
+//   - dishId: int (required, immutable, >= 0)
+//   - dishName: string (required, 1..150 chars)
+//   - dishImage: string (required, <= 2048 chars)
+//   - basePrice: number (required, 0..100000)
+//   - selectedSize: map (required, <= 10 keys)
+//   - selectedAddons: list (required, size <= 30)
+//   - specialInstructions: string | null (optional, <= 500 chars)
+//   - quantity: int (required, 1..99)
+//   - unitTotalPrice: number (required, 0..100000)
+//   - updatedAt: timestamp (required)
+//
+// Collection: users/{uid}/orders
+// Document ID: {orderId}
+// Access: Owner read/create/update only; delete denied.
+// Note: Owner update is strictly limited to monotonic live-tracking
+// progression ('confirmed' -> 'preparing' -> 'out_for_delivery' -> 'delivered')
+// modifying ONLY ['status', 'estimatedMinutesRemaining', 'updatedAt'].
+// Fields:
+//   - orderId: string (required, immutable, == {orderId}, 1..128 chars)
+//   - restaurantId: string (required, immutable, 1..128 chars)
+//   - restaurantName: string (required, immutable, 1..150 chars)
+//   - items: list<map> (required, immutable, size 1..50)
+//   - subtotal: number (required, immutable, 0..1000000)
+//   - deliveryFee: number (required, immutable, 0..10000)
+//   - discountAmount: number (required, immutable, 0..1000000)
+//   - totalPrice: number (required, immutable, 0..1000000)
+//   - paymentMethod: string (required, immutable, enum: 'Cash on Delivery' | 'Credit/Debit Card')
+//   - deliveryAddress: map (required, immutable, keys: fullName, phone, street, city)
+//   - status: string (required, starts as 'confirmed', monotonic forward transitions only)
+//   - estimatedMinutesRemaining: int (required, 0..180)
+//   - courierName: string (required, immutable, 1..120 chars)
+//   - createdAt: timestamp (required, immutable)
+//   - updatedAt: timestamp (required)
+//
+// Assumptions:
+//   - Parent user document existence is not checked via exists() on subcollection
+//     access to avoid extra read costs and first-run profile-creation race conditions;
+//     path-level UID ownership (isOwner(uid)) strictly isolates each user's data.
+//   - CEL does not support arbitrary list iteration; list fields enforce strict size
+//     caps and boundary-element type checks where applicable.
+// ===============================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    // Check if the user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Check if the authenticated user owns the path scoped to userId
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Verify uid field matches the authenticated user on create
+    function uidUnchanged() {
+      return !('uid' in request.resource.data) ||
+             request.resource.data.uid == request.auth.uid;
+    }
+
+    // Verify uid field is not modified on update
+    function uidNotModified() {
+      return !('uid' in request.resource.data) ||
+             request.resource.data.uid == resource.data.uid;
+    }
+
+    // Validate required fields exist on the resulting document
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    // Enforce strict schema (no extraneous fields)
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    // Ensure specified immutable fields were not modified on update
+    function areImmutableFieldsUnchanged(fields) {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(fields);
+    }
+
+    // Validate string type and length bounds
+    function isValidString(val, minLen, maxLen) {
+      return val is string && val.size() >= minLen && val.size() <= maxLen;
+    }
+
+    // Validate numeric value within inclusive range (accepts int or float)
+    function isValidNumberRange(val, minVal, maxVal) {
+      return val is number && val >= minVal && val <= maxVal;
+    }
+
+    // Validate integer value within inclusive range
+    function isValidIntRange(val, minVal, maxVal) {
+      return val is int && val >= minVal && val <= maxVal;
+    }
+
+    // Validate URL format (must start with https:// or http://)
+    function isValidUrl(url) {
+      return url is string &&
+             url.size() <= 2048 &&
+             (url.matches("^https://.*") || url.matches("^http://.*"));
+    }
+
+    // Validate email format
+    function isValidEmail(email) {
+      return email is string &&
+             email.size() >= 1 &&
+             email.size() <= 254 &&
+             email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    // Validate address map structure and string bounds
+    function isValidAddress(addr) {
+      return addr is map &&
+             addr.keys().hasOnly(['fullName', 'phone', 'street', 'city']) &&
+             addr.keys().hasAll(['fullName', 'phone', 'street', 'city']) &&
+             isValidString(addr.fullName, 1, 120) &&
+             isValidString(addr.phone, 1, 40) &&
+             isValidString(addr.street, 1, 250) &&
+             isValidString(addr.city, 1, 100);
+    }
+
+    // Validate optional string list with size cap and boundary element checks
+    function isValidOptionalIdList(data, field, maxSize) {
+      return !(field in data) ||
+             (data[field] is list &&
+              data[field].size() <= maxSize &&
+              (data[field].size() == 0 ||
+               (isValidString(data[field][0], 1, 128) &&
+                isValidString(data[field][data[field].size() - 1], 1, 128))));
+    }
+
+    // ===============================================================
+    // Domain Validators (Used in BOTH create and update)
+    // ===============================================================
+
+    // Validate users/{uid} document schema and field constraints
+    function isValidUser(data, uid) {
+      return hasOnlyAllowedFields([
+               'uid',
+               'name',
+               'email',
+               'photoUrl',
+               'defaultAddress',
+               'favoriteRestaurantIds',
+               'createdAt',
+               'updatedAt'
+             ]) &&
+             hasRequiredFields(['uid', 'name', 'email']) &&
+             isValidString(data.uid, 1, 128) &&
+             data.uid == uid &&
+             isValidString(data.name, 1, 120) &&
+             isValidEmail(data.email) &&
+             (!('photoUrl' in data) ||
+              data.photoUrl == null ||
+              (data.photoUrl is string &&
+               data.photoUrl.size() <= 2048 &&
+               (data.photoUrl.size() == 0 || isValidUrl(data.photoUrl)))) &&
+             (!('defaultAddress' in data) ||
+              data.defaultAddress == null ||
+              isValidAddress(data.defaultAddress)) &&
+             isValidOptionalIdList(data, 'favoriteRestaurantIds', 200) &&
+             (!('createdAt' in data) || data.createdAt is timestamp) &&
+             (!('updatedAt' in data) || data.updatedAt is timestamp);
+    }
+
+    // Validate users/{uid}/cart/{cartItemId} document schema and field constraints
+    function isValidCartItem(data, cartItemId) {
+      return hasOnlyAllowedFields([
+               'cartItemId',
+               'restaurantId',
+               'restaurantName',
+               'dishId',
+               'dishName',
+               'dishImage',
+               'basePrice',
+               'selectedSize',
+               'selectedAddons',
+               'specialInstructions',
+               'quantity',
+               'unitTotalPrice',
+               'updatedAt'
+             ]) &&
+             hasRequiredFields([
+               'cartItemId',
+               'restaurantId',
+               'restaurantName',
+               'dishId',
+               'dishName',
+               'dishImage',
+               'basePrice',
+               'selectedSize',
+               'selectedAddons',
+               'quantity',
+               'unitTotalPrice',
+               'updatedAt'
+             ]) &&
+             isValidString(data.cartItemId, 1, 128) &&
+             data.cartItemId == cartItemId &&
+             isValidString(data.restaurantId, 1, 128) &&
+             isValidString(data.restaurantName, 1, 150) &&
+             data.dishId is int && data.dishId >= 0 &&
+             isValidString(data.dishName, 1, 150) &&
+             isValidString(data.dishImage, 0, 2048) &&
+             isValidNumberRange(data.basePrice, 0, 100000) &&
+             data.selectedSize is map && data.selectedSize.size() <= 10 &&
+             data.selectedAddons is list && data.selectedAddons.size() <= 30 &&
+             (!('specialInstructions' in data) ||
+              data.specialInstructions == null ||
+              isValidString(data.specialInstructions, 0, 500)) &&
+             isValidIntRange(data.quantity, 1, 99) &&
+             isValidNumberRange(data.unitTotalPrice, 0, 100000) &&
+             data.updatedAt is timestamp;
+    }
+
+    // Validate users/{uid}/orders/{orderId} document schema and field constraints
+    function isValidOrder(data, orderId) {
+      return hasOnlyAllowedFields([
+               'orderId',
+               'restaurantId',
+               'restaurantName',
+               'items',
+               'subtotal',
+               'deliveryFee',
+               'discountAmount',
+               'totalPrice',
+               'paymentMethod',
+               'deliveryAddress',
+               'status',
+               'estimatedMinutesRemaining',
+               'courierName',
+               'createdAt',
+               'updatedAt'
+             ]) &&
+             hasRequiredFields([
+               'orderId',
+               'restaurantId',
+               'restaurantName',
+               'items',
+               'subtotal',
+               'deliveryFee',
+               'discountAmount',
+               'totalPrice',
+               'paymentMethod',
+               'deliveryAddress',
+               'status',
+               'estimatedMinutesRemaining',
+               'courierName',
+               'createdAt',
+               'updatedAt'
+             ]) &&
+             isValidString(data.orderId, 1, 128) &&
+             data.orderId == orderId &&
+             isValidString(data.restaurantId, 1, 128) &&
+             isValidString(data.restaurantName, 1, 150) &&
+             data.items is list &&
+             data.items.size() >= 1 &&
+             data.items.size() <= 50 &&
+             data.items[0] is map &&
+             data.items[data.items.size() - 1] is map &&
+             isValidNumberRange(data.subtotal, 0, 1000000) &&
+             isValidNumberRange(data.deliveryFee, 0, 10000) &&
+             isValidNumberRange(data.discountAmount, 0, 1000000) &&
+             isValidNumberRange(data.totalPrice, 0, 1000000) &&
+             data.paymentMethod is string &&
+             data.paymentMethod in ['Cash on Delivery', 'Credit/Debit Card'] &&
+             isValidAddress(data.deliveryAddress) &&
+             data.status is string &&
+             data.status in ['confirmed', 'preparing', 'out_for_delivery', 'delivered'] &&
+             isValidIntRange(data.estimatedMinutesRemaining, 0, 180) &&
+             isValidString(data.courierName, 1, 120) &&
+             data.createdAt is timestamp &&
+             data.updatedAt is timestamp;
+    }
+
+    // Enforce monotonic forward-only order status progression
+    function isValidOrderStatusTransition(prevStatus, nextStatus) {
+      return (prevStatus == 'confirmed' && nextStatus == 'preparing') ||
+             (prevStatus == 'preparing' && nextStatus == 'out_for_delivery') ||
+             (prevStatus == 'out_for_delivery' && nextStatus == 'delivered');
+    }
+
+    // ===============================================================
+    // Collection Rules
+    // ===============================================================
+
+    // User profile documents (contains PII: strictly owner-only)
+    match /users/{uid} {
+      allow read: if isOwner(uid);
+
+      allow create: if isOwner(uid) &&
+                       uidUnchanged() &&
+                       isValidUser(request.resource.data, uid);
+
+      allow update: if isOwner(uid) &&
+                       uidNotModified() &&
+                       areImmutableFieldsUnchanged(['uid']) &&
+                       (!('createdAt' in resource.data) ||
+                        (('createdAt' in request.resource.data) &&
+                         request.resource.data.createdAt == resource.data.createdAt)) &&
+                       isValidUser(request.resource.data, uid);
+
+      allow delete: if false;
+
+      // Owner-scoped shopping cart items
+      match /cart/{cartItemId} {
+        allow read: if isOwner(uid);
+
+        allow create: if isOwner(uid) &&
+                         isValidCartItem(request.resource.data, cartItemId);
+
+        allow update: if isOwner(uid) &&
+                         areImmutableFieldsUnchanged(['cartItemId', 'restaurantId', 'dishId']) &&
+                         isValidCartItem(request.resource.data, cartItemId);
+
+        allow delete: if isOwner(uid);
+      }
+
+      // Owner-scoped orders (immutable financials/items/address; monotonic tracking updates only)
+      match /orders/{orderId} {
+        allow read: if isOwner(uid);
+
+        allow create: if isOwner(uid) &&
+                         isValidOrder(request.resource.data, orderId) &&
+                         request.resource.data.status == 'confirmed';
+
+        allow update: if isOwner(uid) &&
+                         isValidOrder(request.resource.data, orderId) &&
+                         request.resource.data.diff(resource.data).affectedKeys()
+                           .hasOnly(['status', 'estimatedMinutesRemaining', 'updatedAt']) &&
+                         isValidOrderStatusTransition(
+                           resource.data.status,
+                           request.resource.data.status
+                         );
+
+        allow delete: if false;
+      }
+    }
+
+    // Default deny all other collections and subcollections
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

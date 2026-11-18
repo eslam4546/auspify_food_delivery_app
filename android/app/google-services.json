@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "644078647776",
+    "project_id": "warmcourier-auspify",
+    "storage_bucket": "warmcourier-auspify.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:644078647776:android:6e4ba93e9c052078069385",
+        "android_client_info": {
+          "package_name": "com.example.food_delivery_application"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAA75YhVNtKhnOZNOU88adKJpTd6mMUaTA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
